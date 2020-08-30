@@ -502,14 +502,28 @@ class SQLAlchemyUserDatastore(SQLAlchemyDatastore, UserDatastore):
                 if rv is not None:
                     return rv
 
-    def find_user(self, **kwargs):
+    def find_user(self, case_insensitive=False, **kwargs):
+        from sqlalchemy import func as alchemyFn
+
         query = self.user_model.query
         if config_value("JOIN_USER_ROLES") and hasattr(self.user_model, "roles"):
             from sqlalchemy.orm import joinedload
 
             query = query.options(joinedload("roles"))
 
-        return query.filter_by(**kwargs).first()
+        if case_insensitive:
+            # While it is of course possible to pass in multiple keys to filter on
+            # that isn't the normal use case. If caller asks for case_insensitive
+            # AND gives multiple keys - throw an error.
+            if len(kwargs) > 1:
+                raise ValueError("Case insensitive option only supports single key")
+            attr, identifier = kwargs.popitem()
+            subquery = alchemyFn.lower(
+                getattr(self.user_model, attr)
+            ) == alchemyFn.lower(identifier)
+            return query.filter(subquery).first()
+        else:
+            return query.filter_by(**kwargs).first()
 
     def find_role(self, role):
         return self.role_model.query.filter_by(name=role).first()
